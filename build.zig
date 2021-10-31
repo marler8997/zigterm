@@ -7,9 +7,15 @@ pub fn build(b: *std.build.Builder) void {
     const exe = b.addExecutable("zigterm", "zigterm.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
-    // TODO: replace c/X11 libraries
-    exe.linkSystemLibrary("c");
-    exe.linkSystemLibrary("X11");
+    const use_x11 = true;
+    if (use_x11) {
+        exe.linkSystemLibrary("c");
+        exe.linkSystemLibrary("X11");
+        exe.addPackagePath("x", "x11.zig");
+    } else {
+        std.log.err("not implemented");
+        std.os.exit(0xff);
+    }
     exe.install();
 
     const run_cmd = exe.run();
