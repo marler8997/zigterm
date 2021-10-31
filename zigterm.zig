@@ -8,7 +8,7 @@ const termlog = std.log.scoped(.term);
 const termiolog = std.log.scoped(.termio);
 
 pub const scope_levels = [_]std.log.ScopeLevel {
-    .{ .scope = .x11, .level = .info },
+    .{ .scope = .x11, .level = .debug },
     .{ .scope = .term, .level = .info },
     .{ .scope = .termio, .level = .info },
     .{ .scope = .render, .level = .info },
