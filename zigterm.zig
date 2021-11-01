@@ -15,8 +15,8 @@ pub const scope_levels = [_]std.log.ScopeLevel {
 };
 
 const TermFds = struct {
-    master: c_int,
-    slave: c_int,
+    master: std.os.fd_t,
+    slave: std.os.fd_t,
 };
 
 fn openPseudoterm() TermFds {
@@ -54,7 +54,7 @@ fn openPseudoterm() TermFds {
     };
 }
 
-fn execShellNoreturn(slave: c_int) noreturn {
+fn execShellNoreturn(slave: std.os.fd_t) noreturn {
     tryExecShell(slave) catch |err| {
         std.log.err("{s}", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
@@ -63,7 +63,7 @@ fn execShellNoreturn(slave: c_int) noreturn {
     };
     std.os.exit(0xff);
 }
-fn tryExecShell(slave: c_int) !void {
+fn tryExecShell(slave: std.os.fd_t) !void {
     switch (std.os.errno(setsid())) {
         .SUCCESS => {},
         else => |errno| {
@@ -148,7 +148,7 @@ pub fn setsid() usize {
     return std.os.linux.syscall0(.setsid);
 }
 
-fn run(term_fd_master: c_int, window: *x.Window) !void {
+fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
     const maxfd = std.math.max(term_fd_master, window.fd) + 1;
 
     const buf_size = std.mem.alignForward(std.mem.page_size, 1024 * 1024);
@@ -181,7 +181,7 @@ fn run(term_fd_master: c_int, window: *x.Window) !void {
     }
 }
 
-fn readPseudoterm(term_fd_master: c_int, buf: *CircularBuffer) void {
+fn readPseudoterm(term_fd_master: std.os.fd_t, buf: *CircularBuffer) void {
     const read_len = std.os.read(term_fd_master, buf.next()) catch |err| {
         std.log.err("read from pseudoterm failed with {}", .{err});
         std.os.exit(0xff);

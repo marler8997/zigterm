@@ -2,7 +2,7 @@ const std = @import("std");
 const os = std.os;
 const Term = std.ChildProcess.Term;
 
-pub fn open(flags: u32) !c_int {
+pub fn open(flags: u32) !os.fd_t {
     return os.openZ("/dev/ptmx", flags, undefined);
 }
 
@@ -12,7 +12,7 @@ const pt_chown_master_fd = 3;
 const grant_process_exit_code_bad_fd = 2;
 const grant_process_exit_code_exec_fail = 3;
 
-pub fn grantpt(fd: c_int) !void {
+pub fn grantpt(fd: os.fd_t) !void {
     _ = fd;
 //    std.log.debug("forking...", .{});
 //    const pid = try os.fork();
@@ -83,7 +83,7 @@ const TIOCSPTLCK = 0x40045431;
 const TIOCGPTN   = 0x80045430;
 const TIOCSWINSZ = 0x5414;
 
-pub fn unlockpt(fd: c_int) ?os.E {
+pub fn unlockpt(fd: os.fd_t) ?os.E {
     var unlock: c_int = 0;
     switch (os.errno(os.linux.ioctl(fd, TIOCSPTLCK, @ptrToInt(&unlock)))) {
         .SUCCESS => return null,
@@ -91,7 +91,7 @@ pub fn unlockpt(fd: c_int) ?os.E {
     }
 }
 
-pub fn getPtyNum(fd: c_int) !c_uint {
+pub fn getPtyNum(fd: os.fd_t) !c_uint {
     var pty_num: c_uint = undefined;
     switch (os.errno(os.linux.ioctl(fd, TIOCGPTN, @ptrToInt(&pty_num)))) {
         .SUCCESS => return pty_num,
@@ -123,12 +123,12 @@ pub const PtyPath = struct {
         return std.meta.assumeSentinel(&self.path_buffer, 0);
     }
 
-    pub fn open(self: *const PtyPath, flags: u32) !c_int {
+    pub fn open(self: *const PtyPath, flags: u32) !os.fd_t {
         return os.openZ(self.getPathZ(), flags, undefined);
     }
 };
 
-pub fn setSize(master: c_int, height: u16, width: u16) ?os.E {
+pub fn setSize(master: os.fd_t, height: u16, width: u16) ?os.E {
     var size = std.os.linux.winsize {
         .ws_row = height,
         .ws_col = width,
