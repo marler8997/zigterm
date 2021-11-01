@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os = std.os;
 
 const CircularBuffer = @This();
@@ -11,6 +12,9 @@ cursor: usize,
 
 pub fn init(size: usize) !CircularBuffer {
     std.debug.assert((size % std.mem.page_size) == 0);
+
+    if (builtin.os.tag == .windows)
+        @panic("not implemented");
 
     const fd = try os.memfd_createZ("zigCircularBuffer", 0);
     errdefer os.close(fd);

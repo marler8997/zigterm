@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const pseudoterm = @import("pseudoterm.zig");
 const CircularBuffer = @import("CircularBuffer.zig");
 
@@ -20,6 +21,9 @@ const TermFds = struct {
 };
 
 fn openPseudoterm() TermFds {
+    if (builtin.os.tag == .windows)
+        @panic("not implemented");
+
     const master = pseudoterm.open(std.os.O.RDWR | std.os.O.NOCTTY) catch |err| {
         termlog.err("failed to open pseudoterm: {}", .{err});
         std.os.exit(0xff);
@@ -89,6 +93,9 @@ fn tryExecShell(slave: std.os.fd_t) !void {
 }
 
 fn spawnShell(term_fds: TermFds) void {
+    if (builtin.os.tag == .windows)
+        @panic("not implemented");
+
     const pid = std.os.fork() catch |err| {
         std.log.err("failed to fork shell process: {}", .{err});
         std.os.exit(0xff);
@@ -107,9 +114,13 @@ pub fn main() anyerror!void {
     //_ = c.XSetLocaleModifiers("");
 
     const term_fds = openPseudoterm();
-    if (pseudoterm.setSize(term_fds.master, window.cell_height, window.cell_width)) |err| {
-        termlog.err("failed to set terminal size, errno={}", .{err});
-        std.os.exit(0xff);
+    if (builtin.os.tag == .windows) {
+        // no implementation
+    } else {
+        if (pseudoterm.setSize(term_fds.master, window.cell_height, window.cell_width)) |err| {
+            termlog.err("failed to set terminal size, errno={}", .{err});
+            std.os.exit(0xff);
+        }
     }
 
     spawnShell(term_fds);
@@ -149,7 +160,7 @@ pub fn setsid() usize {
 }
 
 fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
-    const maxfd = std.math.max(term_fd_master, window.fd) + 1;
+    const maxfd = if (builtin.os.tag == .windows) void else std.math.max(term_fd_master, window.fd) + 1;
 
     const buf_size = std.mem.alignForward(std.mem.page_size, 1024 * 1024);
     //const buf_size = std.mem.alignForward(std.mem.page_size, 1);
@@ -157,8 +168,12 @@ fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
 
     while (true) {
         var readfds = FdSet.initEmpty();
-        readfds.setValue(@intCast(usize, term_fd_master), true);
-        readfds.setValue(@intCast(usize, window.fd), true);
+        if (builtin.os.tag == .windows) {
+            @panic("not implemented");
+        } else {
+            readfds.setValue(@intCast(usize, term_fd_master), true);
+            readfds.setValue(@intCast(usize, window.fd), true);
+        }
 
         //std.log.info("waiting for something...", .{});
         switch (std.os.errno(pselect6(maxfd, &readfds, null, null, null, null))) {
