@@ -1,4 +1,5 @@
 const std = @import("std");
+const GitRepoStep = @import("GitRepoStep.zig");
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
@@ -7,14 +8,17 @@ pub fn build(b: *std.build.Builder) void {
     const exe = b.addExecutable("zigterm", "zigterm.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
-    if ( if (b.option(bool, "x11", "use libX11")) |o| o else false ) {
-        exe.linkSystemLibrary("c");
-        exe.linkSystemLibrary("X11");
-        exe.addPackagePath("x", "x11.zig");
-    } else {
-        exe.linkSystemLibrary("c");
-        exe.linkSystemLibrary("xcb");
-        exe.addPackagePath("x", "xcb.zig");
+
+    {
+        const zigx_repo = GitRepoStep.create(b, .{
+            .url = "https://github.com/marler8997/zigx",
+            .branch = null,
+            .sha = "f3b9063cfe615a2c8953e48b7734fd91ce933a8d",
+        });
+        exe.step.dependOn(&zigx_repo.step);
+        const zigx_path = zigx_repo.getPath(&exe.step);
+        const index_file = std.fs.path.join(b.allocator, &.{ zigx_path, "x.zig" }) catch unreachable;
+        exe.addPackagePath("x", index_file);
     }
     exe.install();
 

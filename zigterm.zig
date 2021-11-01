@@ -1,15 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const pseudoterm = @import("pseudoterm.zig");
-const CircularBuffer = @import("CircularBuffer.zig");
 
-const x = @import("x");
+const x11 = @import("x");
+const Memfd = x11.Memfd;
+const CircularBuffer = x11.CircularBuffer;
+
+const xwindow = @import("xwindow.zig");
+const Window = xwindow.Window;
 
 const termlog = std.log.scoped(.term);
 const termiolog = std.log.scoped(.termio);
 
 pub const scope_levels = [_]std.log.ScopeLevel {
-    .{ .scope = .x11, .level = .debug },
+    .{ .scope = .x11, .level = .info },
     .{ .scope = .term, .level = .info },
     .{ .scope = .termio, .level = .info },
     .{ .scope = .render, .level = .info },
@@ -92,7 +96,7 @@ fn tryExecShell(slave: std.os.fd_t) !void {
     ) catch {};
 }
 
-fn spawnShell(term_fds: TermFds) void {
+fn spawnShell(term_fds: TermFds, fds_to_close: []std.os.fd_t) void {
     if (builtin.os.tag == .windows)
         @panic("not implemented");
 
@@ -103,13 +107,17 @@ fn spawnShell(term_fds: TermFds) void {
     if (pid == 0) {
         // the child process
         std.os.close(term_fds.master);
+        for (fds_to_close) |fd| {
+            std.os.close(fd);
+        }
         execShellNoreturn(term_fds.slave);
     }
+    std.log.info("started shell, pid={}", .{pid});
 }
 
 
 pub fn main() anyerror!void {
-    var window = x.Window.init();
+    var window = try Window.init();
     // TODO: do I need to setlocale?
     //_ = c.XSetLocaleModifiers("");
 
@@ -123,7 +131,7 @@ pub fn main() anyerror!void {
         }
     }
 
-    spawnShell(term_fds);
+    spawnShell(term_fds, &[_]std.os.fd_t { window.recv_buf_memfd.fd} );
     std.os.close(term_fds.slave);
 
     try run(term_fds.master, &window);
@@ -159,12 +167,15 @@ pub fn setsid() usize {
     return std.os.linux.syscall0(.setsid);
 }
 
-fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
-    const maxfd = if (builtin.os.tag == .windows) void else std.math.max(term_fd_master, window.fd) + 1;
+fn run(term_fd_master: std.os.fd_t, window: *Window) !void {
+    const maxfd = if (builtin.os.tag == .windows) void else (std.math.max(term_fd_master, window.sock) + 1);
+
+    const buf_memfd = try Memfd.init("zigtermCircularBuffer");
+    // no need to deinit
 
     const buf_size = std.mem.alignForward(std.mem.page_size, 1024 * 1024);
     //const buf_size = std.mem.alignForward(std.mem.page_size, 1);
-    var buf = try CircularBuffer.init(buf_size);
+    var buf = try CircularBuffer.init(buf_memfd, buf_size);
 
     while (true) {
         var readfds = FdSet.initEmpty();
@@ -172,7 +183,7 @@ fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
             @panic("not implemented");
         } else {
             readfds.setValue(@intCast(usize, term_fd_master), true);
-            readfds.setValue(@intCast(usize, window.fd), true);
+            readfds.setValue(@intCast(usize, window.sock), true);
         }
 
         //std.log.info("waiting for something...", .{});
@@ -190,7 +201,7 @@ fn run(term_fd_master: std.os.fd_t, window: *x.Window) !void {
             //       is complete.
             window.render(buf);
         }
-        if (readfds.isSet(@intCast(usize, window.fd))) {
+        if (readfds.isSet(@intCast(usize, window.sock))) {
             window.onRead(term_fd_master, buf);
         }
     }
@@ -201,6 +212,10 @@ fn readPseudoterm(term_fd_master: std.os.fd_t, buf: *CircularBuffer) void {
         std.log.err("read from pseudoterm failed with {}", .{err});
         std.os.exit(0xff);
     };
+    if (read_len == 0) {
+        std.log.info("pseudoterm is closed", .{});
+        std.os.exit(0);
+    }
     termiolog.debug("read {} bytes from pseudoterm", .{read_len});
     buf.scroll(read_len);
 }
