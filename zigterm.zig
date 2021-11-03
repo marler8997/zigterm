@@ -1,11 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const pseudoterm = @import("pseudoterm.zig");
 
 const x11 = @import("x");
 const Memfd = x11.Memfd;
 const CircularBuffer = x11.CircularBuffer;
 
+const shell = @import("shell.zig");
 const Window = @import("Window.zig");
 
 const termlog = std.log.scoped(.term);
@@ -18,122 +18,19 @@ pub const scope_levels = [_]std.log.ScopeLevel {
     .{ .scope = .render, .level = .info },
 };
 
-const TermFds = struct {
-    master: std.os.fd_t,
-    slave: std.os.fd_t,
-};
-
-fn openPseudoterm() TermFds {
-    if (builtin.os.tag == .windows)
-        @panic("not implemented");
-
-    const master = pseudoterm.open(std.os.O.RDWR | std.os.O.NOCTTY) catch |err| {
-        termlog.err("failed to open pseudoterm: {}", .{err});
-        std.os.exit(0xff);
-    };
-
-    pseudoterm.grantpt(master) catch |err| {
-        termlog.err("grantpt failed with {}", .{err});
-        std.os.exit(0xff);
-    };
-    if (pseudoterm.unlockpt(master)) |errno| {
-        termlog.err("unlockpt failed, errno={}", .{errno});
-        std.os.exit(0xff);
-    }
-
-    const master_num = pseudoterm.getPtyNum(master) catch |err| {
-        termlog.err("failed to get pty num for fd={}, error={}", .{master, err});
-        std.os.exit(0xff);
-    };
-    termlog.info("pty number is {}", .{master_num});
-
-    const pty_path = pseudoterm.PtyPath.init(master_num);
-    termlog.info("pty path is '{s}'", .{pty_path.getSlice()});
-
-    const slave = pty_path.open(std.os.O.RDWR | std.os.O.NOCTTY) catch |err| {
-        termlog.err("failed to open pty slave '{s}': {}", .{pty_path.getSlice(), err});
-        std.os.exit(0xff);
-    };
-
-    return TermFds{
-        .master = master,
-        .slave = slave,
-    };
-}
-
-fn execShellNoreturn(slave: std.os.fd_t) noreturn {
-    tryExecShell(slave) catch |err| {
-        std.log.err("{s}", .{@errorName(err)});
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
-        }
-    };
-    std.os.exit(0xff);
-}
-fn tryExecShell(slave: std.os.fd_t) !void {
-    switch (std.os.errno(setsid())) {
-        .SUCCESS => {},
-        else => |errno| {
-            std.log.err("setsid failed, errno={}", .{errno});
-            std.os.exit(0xff);
-        },
-    }
-
-    try std.os.dup2(slave, 0);
-    try std.os.dup2(slave, 1);
-    try std.os.dup2(slave, 2);
-    std.os.close(slave);
-
-    // TODO: this shell needs to be customizeable somehow, maybe there is already an environment variable?
-    //       if there is, it should be documented in the usage help
-    // TODO: forward the current env
-    std.os.execveZ(
-        "/bin/sh",
-        &[_:null]?[*:0]const u8 {"/bin/sh", null},
-        @ptrCast([*:null]const ?[*:0]const u8, std.os.environ.ptr),
-        //&[_:null]?[*:0]const u8 {null},
-    ) catch {};
-}
-
-fn spawnShell(term_fds: TermFds, fds_to_close: []std.os.fd_t) void {
-    if (builtin.os.tag == .windows)
-        @panic("not implemented");
-
-    const pid = std.os.fork() catch |err| {
-        std.log.err("failed to fork shell process: {}", .{err});
-        std.os.exit(0xff);
-    };
-    if (pid == 0) {
-        // the child process
-        std.os.close(term_fds.master);
-        for (fds_to_close) |fd| {
-            std.os.close(fd);
-        }
-        execShellNoreturn(term_fds.slave);
-    }
-    std.log.info("started shell, pid={}", .{pid});
-}
-
-
 pub fn main() anyerror!void {
+    // I'm spawning the shell first thing because
+    // on linux this might make it easier because we don't have to
+    // cleanup any file descriptors (I think, but not sure)
+    const shell_fd = try shell.spawnShell();
+
     var window = try Window.init();
     // TODO: do I need to setlocale?
     //_ = c.XSetLocaleModifiers("");
 
-    const term_fds = openPseudoterm();
-    if (builtin.os.tag == .windows) {
-        // no implementation
-    } else {
-        if (pseudoterm.setSize(term_fds.master, window.cell_height, window.cell_width)) |err| {
-            termlog.err("failed to set terminal size, errno={}", .{err});
-            std.os.exit(0xff);
-        }
-    }
+    shell.setSize(shell_fd, window.cell_width, window.cell_height);
 
-    spawnShell(term_fds, &[_]std.os.fd_t { window.recv_buf_memfd.fd} );
-    std.os.close(term_fds.slave);
-
-    try run(term_fds.master, &window);
+    try run(shell_fd, &window);
 }
 
 // TODO: move this stuff to std
@@ -162,12 +59,9 @@ pub fn pselect6(
         @ptrToInt(sigmask),
      );
 }
-pub fn setsid() usize {
-    return std.os.linux.syscall0(.setsid);
-}
 
-fn run(term_fd_master: std.os.fd_t, window: *Window) !void {
-    const maxfd = if (builtin.os.tag == .windows) void else (std.math.max(term_fd_master, window.sock) + 1);
+fn run(shell_fd: std.os.fd_t, window: *Window) !void {
+    const maxfd = if (builtin.os.tag == .windows) void else (std.math.max(shell_fd, window.sock) + 1);
 
     const buf_memfd = try Memfd.init("zigtermCircularBuffer");
     // no need to deinit
@@ -181,7 +75,7 @@ fn run(term_fd_master: std.os.fd_t, window: *Window) !void {
         if (builtin.os.tag == .windows) {
             @panic("not implemented");
         } else {
-            readfds.setValue(@intCast(usize, term_fd_master), true);
+            readfds.setValue(@intCast(usize, shell_fd), true);
             readfds.setValue(@intCast(usize, window.sock), true);
         }
 
@@ -193,21 +87,21 @@ fn run(term_fd_master: std.os.fd_t, window: *Window) !void {
                 std.os.exit(0xff);
             },
         }
-        if (readfds.isSet(@intCast(usize, term_fd_master))) {
-            readPseudoterm(term_fd_master, &buf);
+        if (readfds.isSet(@intCast(usize, shell_fd))) {
+            readPseudoterm(shell_fd, &buf);
             // TODO: instead of doing a blocking render, I could
             //       schedule it to be done when the previous render
             //       is complete.
             window.render(buf);
         }
         if (readfds.isSet(@intCast(usize, window.sock))) {
-            window.onRead(term_fd_master, buf);
+            window.onRead(shell_fd, buf);
         }
     }
 }
 
-fn readPseudoterm(term_fd_master: std.os.fd_t, buf: *CircularBuffer) void {
-    const read_len = std.os.read(term_fd_master, buf.next()) catch |err| {
+fn readPseudoterm(shell_fd: std.os.fd_t, buf: *CircularBuffer) void {
+    const read_len = std.os.read(shell_fd, buf.next()) catch |err| {
         std.log.err("read from pseudoterm failed with {}", .{err});
         std.os.exit(0xff);
     };
