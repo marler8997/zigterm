@@ -6,8 +6,7 @@ const x11 = @import("x");
 const Memfd = x11.Memfd;
 const CircularBuffer = x11.CircularBuffer;
 
-const xwindow = @import("xwindow.zig");
-const Window = xwindow.Window;
+const Window = @import("Window.zig");
 
 const termlog = std.log.scoped(.term);
 const termiolog = std.log.scoped(.termio);
