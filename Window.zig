@@ -275,7 +275,7 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
             break;
         self.recv_buf_start += parsed.len;
         const msg = parsed.msg;
-        switch (msg.kind) {
+        switch (msg.generic.kind) {
             .key_press => {
                 const event = @ptrCast(*x.Event.KeyOrButton, msg);
                 x11log.debug("key_press: {}", .{event.detail});
@@ -306,7 +306,7 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
                 // TODO: call render?
             },
             else => {
-                x11log.err("unhandled x11 message {}", .{msg.kind});
+                x11log.err("unhandled x11 message {}", .{msg.generic.kind});
                 std.os.exit(0xff);
             },
         }
