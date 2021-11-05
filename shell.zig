@@ -102,18 +102,56 @@ fn tryExecShell(slave: std.os.fd_t) !void {
         },
     }
 
+    const shell: [*:0]const u8 = blk: {
+        for (std.os.environ) |env| {
+            if (cstrStartsWith(env, "SHELL=")) {
+                // TODO: in this case other terms support searching for the shell in $PATH
+                break :blk env + 6;
+            }
+        }
+        // TODO: should we check whether this exists?
+        break :blk "/bin/sh";
+    };
+    termlog.err("shell is '{s}'", .{shell});
+
+    // NOTE: from this point we can no longer log to the parent process
     try std.os.dup2(slave, 0);
     try std.os.dup2(slave, 1);
     try std.os.dup2(slave, 2);
     std.os.close(slave);
 
-    // TODO: this shell needs to be customizeable somehow, maybe there is already an environment variable?
-    //       if there is, it should be documented in the usage help
-    // TODO: forward the current env
-    std.os.execveZ(
-        "/bin/sh",
-        &[_:null]?[*:0]const u8 {"/bin/sh", null},
-        @ptrCast([*:null]const ?[*:0]const u8, std.os.environ.ptr),
-        //&[_:null]?[*:0]const u8 {null},
-    ) catch {};
+    // set the TERM environment variable
+    const env = makeEnvWithTerm("TERM=dumb");
+
+    std.os.execveZ(shell, &[_:null]?[*:0]const u8 {shell, null}, env) catch {};
+}
+
+fn makeEnvWithTerm(term: [*:0]const u8) [*:null]const ?[*:0]const u8 {
+    const new_env = std.heap.page_allocator.alloc(?[*:0]const u8, std.os.environ.len + 2) catch @panic("Out Of Memory");
+    var set_term = false;
+    var i: usize = 0;
+    while (i < std.os.environ.len) : (i += 1) {
+        const env = std.os.environ[i];
+        if (cstrStartsWith(env, "TERM=")) {
+            new_env[i] = term;
+            set_term = true;
+        } else {
+            new_env[i] = env;
+        }
+    }
+    if (!set_term) {
+        new_env[i] = term;
+        i += 1;
+    }
+    new_env[i] = null;
+    return std.meta.assumeSentinel(new_env.ptr, null);
+}
+
+// NOTE: what must not contain the 0 character to prevent from reading past 0 on cstr
+fn cstrStartsWith(cstr: [*:0]const u8, what: []const u8) bool {
+    var i: usize = 0;
+    while (i < what.len) : (i += 1) {
+        if (cstr[i] != what[i]) return false;
+    }
+    return true;
 }
