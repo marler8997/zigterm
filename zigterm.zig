@@ -110,5 +110,5 @@ fn readPseudoterm(shell_fd: std.os.fd_t, buf: *CircularBuffer) void {
         std.os.exit(0);
     }
     termiolog.debug("read {} bytes from pseudoterm", .{read_len});
-    buf.scroll(read_len);
+    _ = buf.scroll(read_len);
 }

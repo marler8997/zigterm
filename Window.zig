@@ -254,7 +254,13 @@ pub fn render(self: Window, buf: CircularBuffer) void {
 pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) void {
     _ = term_buf;
     {
-        const len = std.os.recv(self.sock, self.recv_buf.next(), 0) catch |err| {
+        const reserved = self.recv_buf.cursor - self.recv_buf_start;
+        const recv_buf = self.recv_buf.nextWithLen(self.recv_buf.size - reserved);
+        if (recv_buf.len == 0) {
+            x11log.err("x11 circular buffer size {} is too small!", .{self.recv_buf.size});
+            std.os.exit(0xff);
+        }
+        const len = std.os.recv(self.sock, recv_buf, 0) catch |err| {
             x11log.err("recv on x11 socket failed with {s}", .{@errorName(err)});
             std.os.exit(0xff);
         };
@@ -262,24 +268,23 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
             x11log.info("X server connection closed", .{});
             std.os.exit(0);
         }
-        self.recv_buf.scroll(len);
+        if (self.recv_buf.scroll(len)) {
+            self.recv_buf_start -= self.recv_buf.size;
+        }
         x11log.debug("got {} bytes", .{len});
     }
     while (true) {
-        while (self.recv_buf_start > self.recv_buf.cursor) {
-            self.recv_buf_start -= self.recv_buf.size;
-        }
         const recv_data = self.recv_buf.ptr[self.recv_buf_start .. self.recv_buf.cursor];
-        const parsed = x.parseMsg(@alignCast(4, recv_data));
-        if (parsed.len == 0)
+        const msg_len = x.parseMsgLen(@alignCast(4, recv_data));
+        if (msg_len == 0)
             break;
-        self.recv_buf_start += parsed.len;
-        const msg = parsed.msg;
-        switch (msg.generic.kind) {
-            .key_press => {
-                const event = @ptrCast(*x.Event.KeyOrButton, msg);
-                x11log.debug("key_press: {}", .{event.detail});
-                const data = self.keyboard.keydown(@intToEnum(Keyboard.Keycode, event.detail));
+        self.recv_buf_start += msg_len;
+        // TODO: I need to verify the message internals don't go past the
+        //       end of the buffer
+        switch (x.serverMsgTaggedUnion(@alignCast(4, recv_data.ptr))) {
+            .key_press => |msg| {
+                x11log.debug("key_press: {}", .{msg.detail});
+                const data = self.keyboard.keydown(@intToEnum(Keyboard.Keycode, msg.detail));
                 if (data.len > 0) {
                     // TODO: instead of writing to the pseudoterm, keep it in a line buffer
                     //       so we can handle DELETE's TAB's etc before sending a complete
@@ -295,22 +300,20 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
                     }
                 }
             },
-            .key_release => {
-                const event = @ptrCast(*x.Event.KeyOrButton, msg);
-                x11log.debug("key_release {}", .{event.detail});
-                self.keyboard.keyup(@intToEnum(Keyboard.Keycode, event.detail));
+            .key_release => |msg| {
+                x11log.debug("key_release {}", .{msg.detail});
+                self.keyboard.keyup(@intToEnum(Keyboard.Keycode, msg.detail));
             },
-            .expose => {
-                const event = @ptrCast(*x.Event.Expose, msg);
-                x11log.info("expose: {}", .{event});
+            .expose => |msg| {
+                x11log.info("expose: {}", .{msg});
                 // TODO: call render?
             },
             else => {
-                x11log.err("unhandled x11 message {}", .{msg.generic.kind});
+                const msg = @ptrCast(*x.ServerMsg.Generic, recv_data.ptr);
+                x11log.err("unhandled x11 message {}", .{msg.kind});
                 std.os.exit(0xff);
             },
         }
-
     }
 }
 
