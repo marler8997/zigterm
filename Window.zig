@@ -8,6 +8,7 @@ const renderlog = std.log.scoped(.render);
 const x = @import("x");
 const Memfd = x.Memfd;
 const CircularBuffer = x.CircularBuffer;
+const CharGrid = @import("CharGrid.zig");
 
 const Keyboard = @import("Keyboard.zig");
 
@@ -25,8 +26,7 @@ recv_buf_start: usize,
 
 base_id: u32,
 
-cell_width: u16,
-cell_height: u16,
+grid: CharGrid,
 
 font_ascent: u8,
 font_height: u8,
@@ -37,7 +37,7 @@ pixel_height: u16,
 keyboard: Keyboard = .{},
 
 // Need to initialize with a pointer because we have a pinned reference to ourselves
-pub fn init() !Window {
+pub fn init(grid: CharGrid) !Window {
     const display = x.getDisplay();
 
     const sock = x.connect(display) catch |err| {
@@ -99,14 +99,11 @@ pub fn init() !Window {
     const format_list_limit = x.ConnectSetup.getFormatListLimit(format_list_offset, connect_setup_fixed.format_count);
     var screen = connect_setup.getFirstScreenPtr(format_list_limit);
 
-    const cell_width = 80;
-    const cell_height = 25;
-
     const font_width = 8; // just hardcoded for now
     const font_height = 12; // just hardcoded for now
 
-    const pixel_width = cell_width * font_width;
-    const pixel_height = cell_height * font_height;
+    const pixel_width = grid.width * font_width;
+    const pixel_height = grid.height * font_height;
 
     const base_id = connect_setup.fixed().resource_id_base;
     const window_id = getWindowId(base_id);
@@ -170,8 +167,7 @@ pub fn init() !Window {
         },
         .recv_buf_start = 0,
         .base_id = base_id,
-        .cell_width = cell_width,
-        .cell_height = cell_height,
+        .grid = grid,
         .font_ascent = 4,
         .font_height = font_height,
         .pixel_width = pixel_width,
@@ -206,46 +202,41 @@ pub fn drawString(self: Window, x_coord: i16, y: i16, str: []const u8) void {
 }
 
 pub fn render(self: Window, buf: CircularBuffer) void {
-//        renderlog.debug("render!", .{});
-
+    textToGrid(self.grid, buf);
     {
-        var msg: [x.poly_fill_rectangle.getLen(1)]u8 = undefined;
-        x.poly_fill_rectangle.serialize(&msg, .{
-            .drawable_id = getWindowId(self.base_id),
-            .gc_id = getBackgroundGcId(self.base_id),
-        }, &[_]x.Rectangle {
-            .{ .x = 0, .y = 0, .width = self.pixel_width, .height = self.pixel_height },
-        });
-        send(self.sock, &msg);
+        var row: u16 = 0;
+        while (row < self.grid.height) : (row += 1) {
+            const y = self.font_ascent + (self.font_height * row);
+            self.drawString(0, @intCast(i16, y), self.grid.getRowPtr(row)[0 .. self.grid.width]);
+        }
     }
+}
 
-    {
-        var start = buf.ptr;
-        var cursor = blk: {
-            if (buf.cursor < buf.size)
-                break :blk start + buf.cursor;
-            start += buf.cursor;
-            break :blk start + buf.size;
-        };
+fn textToGrid(grid: CharGrid, buf: CircularBuffer) void {
+    var start = buf.ptr;
+    var cursor = blk: {
+        if (buf.cursor < buf.size)
+            break :blk start + buf.cursor;
+        start += buf.cursor;
+        break :blk start + buf.size;
+    };
 
-        var y_cell = self.cell_height;
-        while (true) {
-            if (y_cell == 0) {
-                // done drawing to the view
-                break;
-            }
-            y_cell -= 1;
-            const y = self.font_ascent + (self.font_height * y_cell);
-            if (toNewline(start, cursor)) |newline| {
-                const line_start = newline + 1;
-                const line_len = @ptrToInt(cursor) - @ptrToInt(line_start);
-                self.drawString(0, @intCast(i16, y), line_start[0 .. line_len]);
-                cursor = newline - 1;
-            } else {
-                const line_len = @ptrToInt(cursor) - @ptrToInt(start);
-                self.drawString(0, @intCast(i16, y), start[0 .. line_len]);
-                break;
-            }
+    var y_cell = grid.height;
+    while (true) {
+        if (y_cell == 0) {
+            // done drawing to the view
+            break;
+        }
+        y_cell -= 1;
+        if (toNewline(start, cursor)) |newline| {
+            const line_start = newline + 1;
+            const line_len = @ptrToInt(cursor) - @ptrToInt(line_start);
+            grid.copyRow(y_cell, line_start[0 .. line_len]);
+            cursor = newline - 1;
+        } else {
+            const line_len = @ptrToInt(cursor) - @ptrToInt(start);
+            grid.copyRow(y_cell, start[0 .. line_len]);
+            break;
         }
     }
 }

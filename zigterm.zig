@@ -6,6 +6,7 @@ const Memfd = x11.Memfd;
 const CircularBuffer = x11.CircularBuffer;
 
 const shell = @import("shell.zig");
+const CharGrid = @import("CharGrid.zig");
 const Window = @import("Window.zig");
 
 const termlog = std.log.scoped(.term);
@@ -24,11 +25,12 @@ pub fn main() anyerror!void {
     // cleanup any file descriptors (I think, but not sure)
     const shell_fd = try shell.spawnShell();
 
-    var window = try Window.init();
+    const grid = try CharGrid.init(std.heap.page_allocator, 80, 25);
+    var window = try Window.init(grid);
     // TODO: do I need to setlocale?
     //_ = c.XSetLocaleModifiers("");
 
-    shell.setSize(shell_fd, window.cell_width, window.cell_height);
+    shell.setSize(shell_fd, grid.width, grid.height);
 
     try run(shell_fd, &window);
 }
