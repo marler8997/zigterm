@@ -9,7 +9,6 @@ const x = @import("x");
 const Memfd = x.Memfd;
 const CircularBuffer = x.CircularBuffer;
 
-const xcommon = @import("xcommon.zig");
 const Keyboard = @import("Keyboard.zig");
 
 const bg_color = 0x333333;
@@ -237,7 +236,7 @@ pub fn render(self: Window, buf: CircularBuffer) void {
             }
             y_cell -= 1;
             const y = self.font_ascent + (self.font_height * y_cell);
-            if (xcommon.toNewline(start, cursor)) |newline| {
+            if (toNewline(start, cursor)) |newline| {
                 const line_start = newline + 1;
                 const line_len = @ptrToInt(cursor) - @ptrToInt(line_start);
                 self.drawString(0, @intCast(i16, y), line_start[0 .. line_len]);
@@ -337,4 +336,15 @@ fn readFull(reader: anytype, buf: []u8) void {
         x11log.err("failed to read {} bytes from X server: {s}", .{buf.len, @errorName(err)});
         std.os.exit(0xff);
     };
+}
+
+pub fn toNewline(start: [*]u8, cursor_arg: [*]u8) ?[*]u8 {
+    var cursor = cursor_arg;
+    while (true) {
+        if (@ptrToInt(cursor) <= @ptrToInt(start))
+            return null;
+        cursor -= 1;
+        if (cursor[0] == '\n')
+            return cursor;
+    }
 }
