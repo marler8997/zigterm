@@ -20,6 +20,8 @@ pub fn getRowPtr(self: CharGrid, row: u16) [*]u8 {
     return self.ptr + (row * self.width);
 }
 
+const cc = std.ascii.control_code;
+
 pub fn copyRow(self: CharGrid, row: u16, chars: []const u8) void {
     const row_ptr = self.getRowPtr(row);
     var col: usize = 0;
@@ -30,6 +32,25 @@ pub fn copyRow(self: CharGrid, row: u16, chars: []const u8) void {
         if (chars[chars_index] == '\r') {
             // ignore these for now
             chars_index += 1;
+        } else if (chars[chars_index] == cc.ESC) {
+            chars_index += 1;
+            if (chars_index < chars.len) {
+                const save_start = chars_index;
+                if (chars[chars_index] == '[') {
+                    while (true) {
+                        chars_index += 1;
+                        if (chars_index == chars.len) break;
+                        if (chars[chars_index] == 'm') {
+                            chars_index += 1;
+                            std.log.warn("TODO: handle escape sequence {}", .{
+                                std.fmt.fmtSliceHexLower(chars[save_start - 1 .. chars_index])});
+                            break;
+                        }
+                    }
+                } else {
+                    std.log.warn("unknown char after esc (0x1b) character {}", .{chars[chars_index]});
+                }
+            }
         } else if (atSequence(chars, chars_index, &[_]u8 { 0x08, 0x20, 0x08})) {
             if (col >= 1) {
                 col -= 1;

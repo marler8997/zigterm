@@ -8,3 +8,9 @@ Use the `tic` program to install this file.
 ```sh
 tic zigterm.terminfo
 ```
+
+After you install it, you can verify the installation with:
+
+```sh
+infocmp zigterm
+```

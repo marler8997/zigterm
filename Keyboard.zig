@@ -104,7 +104,7 @@ pub fn keydown(self: *Keyboard, code: Keycode) Data {
         .spacebar => 
             return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
         else => {
-            std.log.warn("TODO: handle keydown {} (0x{0x})", .{code});
+            std.log.warn("TODO: handle keydown {} (0x{x})", .{code, @enumToInt(code)});
             return Data.none;
         },
     }
@@ -124,7 +124,7 @@ pub fn keyup(self: *Keyboard, code: Keycode) void {
             => {},
         .rshift => self.shift = false,
         .spacebar => {},
-        else => std.log.warn("TODO: handle keyup {} (0x{0x})", .{code}),
+        else => std.log.warn("TODO: handle keyup {} (0x{x})", .{code, @enumToInt(code)}),
     }
 }
 
