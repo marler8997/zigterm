@@ -16,6 +16,7 @@ pub const Keycode = enum(u8) {
     //
     a = 38, s = 39, d = 40, f = 41, g = 42, h = 43, j = 44, k = 45, l = 46,
     //
+    tick_and_tilda = 49,
     lshift = 50,
     //
     z = 52, x = 53, c = 54, v = 55, b = 56, n = 57, m = 58,
@@ -56,6 +57,8 @@ fn keycodeToAscii(shift: bool, code: Keycode) u8 {
         //
         .a=>'A', .s=>'S', .d=>'D', .f=>'F', .g=>'G', .h=>'H', .j=>'J', .k=>'K', .l=>'L',
         //
+        .tick_and_tilda => '~',
+        //
         .z=>'Z', .x=>'X', .v=> 'V', .c=>'C', .b=>'B', .n=>'N', .m=>'M',
         .comma_and_left_angle_bracket => '<',
         .period_and_right_angle_bracket => '>',
@@ -71,6 +74,9 @@ fn keycodeToAscii(shift: bool, code: Keycode) u8 {
         .enter => unreachable,
         //
         .a=>'a', .s=>'s', .d=>'d', .f=>'f', .g=>'g', .h=>'h', .j=>'j', .k=>'k', .l=>'l',
+        //
+        .tick_and_tilda => '`',
+        //
         .z=>'z', .x=>'x', .v => 'v', .c=>'c', .b=>'b', .n=>'n', .m=>'m',
         .comma_and_left_angle_bracket => ',',
         .period_and_right_angle_bracket => '.',
@@ -87,6 +93,8 @@ pub fn keydown(self: *Keyboard, code: Keycode) Data {
             return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
         .enter => return Data.init([_]u8 { '\r', '\n' }),
         .a, .s, .d, .f, .g, .h, .j, .k, .l =>
+            return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
+        .tick_and_tilda =>
             return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
         .lshift => {
             self.shift = true;
@@ -116,6 +124,7 @@ pub fn keyup(self: *Keyboard, code: Keycode) void {
         .q, .w, .e, .r, .t, .y, .u, .i, .o, .p => {},
         .enter => {},
         .a, .s, .d, .f, .g, .h, .j, .k, .l => {},
+        .tick_and_tilda => {},
         .lshift => self.shift = false,
         .z, .x, .v, .c, .b, .n, .m,
         .comma_and_left_angle_bracket,

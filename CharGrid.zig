@@ -1,4 +1,5 @@
 const std = @import("std");
+const escapes = @import("escapes.zig");
 
 const CharGrid = @This();
 
@@ -20,51 +21,47 @@ pub fn getRowPtr(self: CharGrid, row: u16) [*]u8 {
     return self.ptr + (row * self.width);
 }
 
-const cc = std.ascii.control_code;
-
 pub fn copyRow(self: CharGrid, row: u16, chars: []const u8) void {
     const row_ptr = self.getRowPtr(row);
     var col: usize = 0;
     var chars_index: usize = 0;
     while (chars_index < chars.len) {
 
-        // temporary decoding
-        if (chars[chars_index] == '\r') {
-            // ignore these for now
-            chars_index += 1;
-        } else if (chars[chars_index] == cc.ESC) {
-            chars_index += 1;
-            if (chars_index < chars.len) {
-                const save_start = chars_index;
-                if (chars[chars_index] == '[') {
-                    while (true) {
-                        chars_index += 1;
-                        if (chars_index == chars.len) break;
-                        if (chars[chars_index] == 'm') {
-                            chars_index += 1;
-                            std.log.warn("TODO: handle escape sequence {}", .{
-                                std.fmt.fmtSliceHexLower(chars[save_start - 1 .. chars_index])});
-                            break;
-                        }
-                    }
-                } else {
-                    std.log.warn("unknown char after esc (0x1b) character {}", .{chars[chars_index]});
+        const escape = escapes.parseEscape(chars[chars_index..]);
+        switch (escape.kind) {
+            .none => {
+                if (col < self.width) {
+                    row_ptr[col] = chars[chars_index];
                 }
-            }
-        } else if (atSequence(chars, chars_index, &[_]u8 { 0x08, 0x20, 0x08})) {
-            if (col >= 1) {
-                col -= 1;
-            } else {
-                std.log.warn("shell sent backspace without any characters? is that ok?", .{});
-            }
-            chars_index += 3;
-        } else {
-            if (col < self.width) {
-                row_ptr[col] = chars[chars_index];
-            }
-            col += 1;
-            chars_index += 1;
+                col += 1;
+            },
+            .backspace => {
+                if (col == 0) {
+                    std.log.warn("got backspace at beginning of line?", .{});
+                } else {
+                    col -= 1;
+                }
+            },
+            .incomplete_sequence => {
+                std.debug.assert(chars_index + escape.len == chars.len);
+                if (col < self.width) {
+                    row_ptr[col] = '!'; // TODO: maybe something better here?
+                }
+                col += 1;
+            },
+            .ignore_for_now => {},
+            .unimplemented_sequence => {
+                if (col < self.width) {
+                    row_ptr[col] = '?';
+                }
+                col += 1;
+            },
+            .display_attrs => |attrs| {
+                _ = attrs;
+                std.log.info("TODO: handle display attr escape sequence (len = {})", .{escape.len});
+            },
         }
+        chars_index += escape.len;
     }
     while (col < self.width) : (col += 1) {
         row_ptr[col] = ' ';
