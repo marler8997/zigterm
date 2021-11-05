@@ -7,7 +7,8 @@ const Keyboard = @This();
 // 52 - 58 z - m
 
 pub const Keycode = enum(u8) {
-    dash = 20,    
+    _1 = 10, _2 = 11, _3 = 12, _4 = 13, _5 = 14, _6 = 15, _7 = 16, _8 = 17, _9 = 18, _0 = 19, dash = 20, equal = 21, backspace = 22,
+    // where is 23?
     q = 24, w = 25, e = 26, r = 27, t = 28, y = 29, u = 30, i = 31, o = 32, p = 33,
     //
     enter = 36,
@@ -44,14 +45,16 @@ pub const Data = struct {
 
 fn keycodeToAscii(shift: bool, code: Keycode) u8 {
     if (shift) return switch (code) {
-        .dash => '_',
+        ._1=>'!', ._2=>'@', ._3=>'#', ._4=>'$', ._5=>'%', ._6=>'^', ._7=>'&', ._8=>'*', ._9=>'(', ._0=>')',
+        .dash=>'_', .equal=>'+',
+        .backspace => unreachable,
         .q=>'Q', .w=>'W', .e=>'E', .r=>'R', .t=>'T', .y=>'Y', .u=>'U', .i=>'I', .o=>'O', .p=>'P',
         //
         .enter => unreachable,
         //
         .a=>'A', .s=>'S', .d=>'D', .f=>'F', .g=>'G', .h=>'H', .j=>'J', .k=>'K', .l=>'L',
         //
-        .z=>'Z', .x=>'X', .c=>'C', .b=>'B', .n=>'N', .m=>'M',
+        .z=>'Z', .x=>'X', .v=> 'V', .c=>'C', .b=>'B', .n=>'N', .m=>'M',
         .comma_and_left_angle_bracket => '<',
         .period_and_right_angle_bracket => '>',
         .slash_and_question_mark => '?',
@@ -59,13 +62,15 @@ fn keycodeToAscii(shift: bool, code: Keycode) u8 {
         else => unreachable,
     };
     return switch (code) {
-        .dash => '-',
+        ._1=>'1', ._2=>'2', ._3=>'3', ._4=>'4', ._5=>'5', ._6=>'6', ._7=>'7', ._8=>'8', ._9=>'9', ._0=>'0',
+        .dash=>'-', .equal=>'=',
+        .backspace => unreachable,
         .q=>'q', .w=>'w', .e=>'e', .r=>'r', .t=>'t', .y=>'y', .u=>'u', .i=>'i', .o=>'o', .p=>'p',
         //
         .enter => unreachable,
         //
         .a=>'a', .s=>'s', .d=>'d', .f=>'f', .g=>'g', .h=>'h', .j=>'j', .k=>'k', .l=>'l',
-        .z=>'z', .x=>'x', .c=>'c', .b=>'b', .n=>'n', .m=>'m',
+        .z=>'z', .x=>'x', .v => 'v', .c=>'c', .b=>'b', .n=>'n', .m=>'m',
         .comma_and_left_angle_bracket => ',',
         .period_and_right_angle_bracket => '.',
         .slash_and_question_mark => '/',
@@ -76,8 +81,12 @@ fn keycodeToAscii(shift: bool, code: Keycode) u8 {
 
 pub fn keydown(self: *Keyboard, code: Keycode) Data {
     switch (code) {
-        .dash =>
+        ._1, ._2, ._3, ._4, ._5, ._6, ._7, ._8, ._9, ._0, .dash, .equal =>
             return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
+        .backspace => {
+            std.log.warn("TODO: handle backspace", .{});
+            return Data.none;
+        },
         .q, .w, .e, .r, .t, .y, .u, .i, .o, .p =>
             return Data.init([_]u8 { keycodeToAscii(self.shift, code) }),
         .enter => return Data.init([_]u8 { '\r', '\n' }),
@@ -87,7 +96,7 @@ pub fn keydown(self: *Keyboard, code: Keycode) Data {
             self.shift = true;
             return Data.none;
         },
-        .z, .x, .c, .b, .n, .m,
+        .z, .x, .v, .c, .b, .n, .m,
         .comma_and_left_angle_bracket,
         .period_and_right_angle_bracket,
         .slash_and_question_mark,
@@ -107,11 +116,12 @@ pub fn keydown(self: *Keyboard, code: Keycode) Data {
 
 pub fn keyup(self: *Keyboard, code: Keycode) void {
     switch (code) {
+        ._1, ._2, ._3, ._4, ._5, ._6, ._7, ._8, ._9, ._0, .dash, .equal, .backspace => {},
         .q, .w, .e, .r, .t, .y, .u, .i, .o, .p => {},
         .enter => {},
         .a, .s, .d, .f, .g, .h, .j, .k, .l => {},
         .lshift => self.shift = false,
-        .z, .x, .c, .b, .n, .m,
+        .z, .x, .v, .c, .b, .n, .m,
         .comma_and_left_angle_bracket,
         .period_and_right_angle_bracket,
         .slash_and_question_mark,
