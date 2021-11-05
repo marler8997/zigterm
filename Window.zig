@@ -10,6 +10,7 @@ const Memfd = x.Memfd;
 const CircularBuffer = x.CircularBuffer;
 const CharGrid = @import("CharGrid.zig");
 
+const shell = @import("shell.zig");
 const Keyboard = @import("Keyboard.zig");
 
 const bg_color = 0x333333;
@@ -280,14 +281,7 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
                     //       so we can handle DELETE's TAB's etc before sending a complete
                     //       line to the pseudoterm
                     termiolog.debug("writing {} byte(s) to pseudoterm", .{data.len});
-                    const len = std.os.write(term_fd_master, data.buf[0..data.len]) catch |err| {
-                        x11log.err("write to pseudoterm failed with {}", .{err});
-                        std.os.exit(0xff);
-                    };
-                    if (len != data.len) {
-                        x11log.err("only wrote {} byte(s) out of {} to pseudoterm", .{len, data.len});
-                        std.os.exit(0xff);
-                    }
+                    shell.write(term_fd_master, data.buf[0..data.len]);
                 }
             },
             .key_release => |msg| {

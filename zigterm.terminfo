@@ -1,0 +1,5 @@
+zigterm| zig terminal,
+	# automatic margins, I believe this prevents the shell from trying to automatically wrap things
+	# we want to handle wrapping ourselves so we don't have to interact with the shell program
+	# when the size changes or when they scroll the screen from side to side
+	am,

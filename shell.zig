@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const pseudoterm = @import("pseudoterm.zig");
 
 const termlog = std.log.scoped(.term);
+const termiolog = std.log.scoped(.termio);
 
 pub fn spawnShell() !std.os.fd_t {
     if (builtin.os.tag == .windows) {
@@ -121,7 +122,8 @@ fn tryExecShell(slave: std.os.fd_t) !void {
     std.os.close(slave);
 
     // set the TERM environment variable
-    const env = makeEnvWithTerm("TERM=dumb");
+    //const env = makeEnvWithTerm("TERM=dumb");
+    const env = makeEnvWithTerm("TERM=zigterm");
 
     std.os.execveZ(shell, &[_:null]?[*:0]const u8 {shell, null}, env) catch {};
 }
@@ -154,4 +156,36 @@ fn cstrStartsWith(cstr: [*:0]const u8, what: []const u8) bool {
         if (cstr[i] != what[i]) return false;
     }
     return true;
+}
+
+const termiowrite_filename = "termiowrite.bin";
+const enable_termio_log = true;
+var termio_log_file:
+    if (enable_termio_log) ?std.fs.File else ?struct { } =
+    if (enable_termio_log) null else .{};
+fn log_write(buf: []const u8) void {
+    if (enable_termio_log) {
+        const file = termio_log_file orelse std.fs.cwd().createFile(termiowrite_filename, .{}) catch |err|
+            std.debug.panic("failed to create '{s}': {s}", .{termiowrite_filename, @errorName(err)});
+        const len = file.write(buf) catch |err|
+            std.debug.panic("failed to write {} bytes to {s}: {s}", .{buf.len, termiowrite_filename, @errorName(err)});
+        if (len != buf.len)
+            std.debug.panic("only wrote {} byte(s) out of {} {s}", .{len, buf.len, termiowrite_filename});
+    }
+}
+
+pub fn write(fd: std.os.fd_t, buf: []const u8) void {
+    const len = std.os.write(fd, buf) catch |err| {
+        termiolog.err("write to pseudoterm failed with {}", .{err});
+        std.os.exit(0xff);
+    };
+    if (len > 0)
+        log_write(buf[0 .. len]);
+    // TODO: need to implement a loop to write the entire buffer
+    //       and potentially use select or poll to wait for it to be
+    //       writeable if we fail
+    if (len != buf.len) {
+        termiolog.err("only wrote {} byte(s) out of {} to pseudoterm (TODO: handle this)", .{len, buf.len});
+        std.os.exit(0xff);
+    }
 }

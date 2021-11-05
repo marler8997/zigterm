@@ -30,7 +30,8 @@ pub fn main() anyerror!void {
     // TODO: do I need to setlocale?
     //_ = c.XSetLocaleModifiers("");
 
-    shell.setSize(shell_fd, grid.width, grid.height);
+    // TODO: is this necessary if we support "automatic margins"?
+    //shell.setSize(shell_fd, grid.width, grid.height);
 
     try run(shell_fd, &window);
 }
