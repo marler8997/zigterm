@@ -56,9 +56,21 @@ pub fn copyRow(self: CharGrid, row: u16, chars: []const u8) void {
                 }
                 col += 1;
             },
-            .display_attrs => |attrs| {
-                _ = attrs;
-                std.log.info("TODO: handle display attr escape sequence (len = {})", .{escape.len});
+            .csi => |csi| {
+                switch (csi.action) {
+                    'm' => {
+                        for (csi.attrSlice()) |attr| {
+                            switch (attr) {
+                                1 => std.log.info("TODO: set BOLD", .{}),
+                                32 => std.log.info("TODO: set green foreground", .{}),
+                                else => std.log.info("TODO: set attr {}", .{attr}),
+                            }
+                        }
+                    },
+                    else => |action| {
+                        std.log.info("TODO: handle csi action {}", .{action});
+                    },
+                }
             },
         }
         chars_index += escape.len;

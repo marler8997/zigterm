@@ -209,9 +209,15 @@ pub fn write(fd: std.os.fd_t, buf: []const u8) void {
 }
 
 pub fn read(fd: std.os.fd_t, buf: []u8) usize {
-    const read_len = std.os.read(fd, buf) catch |err| {
-        std.log.err("read from pseudoterm failed with {}", .{err});
-        std.os.exit(0xff);
+    const read_len = std.os.read(fd, buf) catch |err| switch (err) {
+        error.InputOutput => {
+            std.log.info("pseudoterm fd closed, I think? double check this is what EIO means", .{});
+            std.os.exit(0);
+        },
+        else => {
+            std.log.err("read from pseudoterm failed with {}", .{err});
+            std.os.exit(0xff);
+        },
     };
     if (read_len == 0) {
         std.log.info("pseudoterm is closed", .{});

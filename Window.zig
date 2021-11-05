@@ -243,7 +243,6 @@ fn textToGrid(grid: CharGrid, buf: CircularBuffer) void {
 }
 
 pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) void {
-    _ = term_buf;
     {
         const reserved = self.recv_buf.cursor - self.recv_buf_start;
         const recv_buf = self.recv_buf.nextWithLen(self.recv_buf.size - reserved);
@@ -290,7 +289,7 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
             },
             .expose => |msg| {
                 x11log.info("expose: {}", .{msg});
-                // TODO: call render?
+                self.render(term_buf);
             },
             else => {
                 const msg = @ptrCast(*x.ServerMsg.Generic, recv_data.ptr);
