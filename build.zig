@@ -5,9 +5,14 @@ pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
 
+    const options = b.addOptions();
+    const termlog = if (b.option(bool, "termlog", "Enable term logs")) |o| o else false;
+    options.addOption(bool, "termlog", termlog);
+
     const exe = b.addExecutable("zigterm", "zigterm.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
+    exe.addOptions("options", options);
 
     {
         const zigx_repo = GitRepoStep.create(b, .{

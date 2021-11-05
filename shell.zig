@@ -6,7 +6,29 @@ const pseudoterm = @import("pseudoterm.zig");
 const termlog = std.log.scoped(.term);
 const termiolog = std.log.scoped(.termio);
 
+const termlog_enabled = @import("options").termlog;
+var termio_log_files: if (termlog_enabled) struct {
+    read: std.fs.File,
+    write: std.fs.File,
+} else struct { } = undefined;
+const TermioDirection = enum {
+    read,
+    write,
+    pub fn filename(self: TermioDirection) []const u8 {
+        return switch (self) { .read => "termioread.bin", .write => "termiowrite.bin" };
+    }
+};
+fn openTermioLog(dir: TermioDirection) std.fs.File {
+    return  std.fs.cwd().createFile(dir.filename(), .{}) catch |err|
+        std.debug.panic("failed to create '{s}': {s}", .{dir.filename(), @errorName(err)});
+}
+
 pub fn spawnShell() !std.os.fd_t {
+    if (termlog_enabled) {
+        termio_log_files.read = openTermioLog(.read);
+        termio_log_files.write = openTermioLog(.write);
+    }
+
     if (builtin.os.tag == .windows) {
         termlog.err("todo: implement the pseudoterm on windows", .{});
         std.os.exit(0xff);
@@ -158,19 +180,13 @@ fn cstrStartsWith(cstr: [*:0]const u8, what: []const u8) bool {
     return true;
 }
 
-const termiowrite_filename = "termiowrite.bin";
-const enable_termio_log = true;
-var termio_log_file:
-    if (enable_termio_log) ?std.fs.File else ?struct { } =
-    if (enable_termio_log) null else .{};
-fn log_write(buf: []const u8) void {
-    if (enable_termio_log) {
-        const file = termio_log_file orelse std.fs.cwd().createFile(termiowrite_filename, .{}) catch |err|
-            std.debug.panic("failed to create '{s}': {s}", .{termiowrite_filename, @errorName(err)});
+fn log(buf: []const u8, comptime direction: TermioDirection) void {
+    if (termlog_enabled) {
+        const file = @field(termio_log_files, switch (direction) { .read => "read", .write => "write" });
         const len = file.write(buf) catch |err|
-            std.debug.panic("failed to write {} bytes to {s}: {s}", .{buf.len, termiowrite_filename, @errorName(err)});
+            std.debug.panic("failed to write {} bytes to {s}: {s}", .{buf.len, direction.filename(), @errorName(err)});
         if (len != buf.len)
-            std.debug.panic("only wrote {} byte(s) out of {} {s}", .{len, buf.len, termiowrite_filename});
+            std.debug.panic("only wrote {} byte(s) out of {} {s}", .{len, buf.len, direction.filename()});
     }
 }
 
@@ -179,8 +195,10 @@ pub fn write(fd: std.os.fd_t, buf: []const u8) void {
         termiolog.err("write to pseudoterm failed with {}", .{err});
         std.os.exit(0xff);
     };
-    if (len > 0)
-        log_write(buf[0 .. len]);
+    if (len > 0) {
+        termiolog.debug("wrote {} bytes to pseudoterm", .{len});
+        log(buf[0 .. len], .write);
+    }
     // TODO: need to implement a loop to write the entire buffer
     //       and potentially use select or poll to wait for it to be
     //       writeable if we fail
@@ -188,4 +206,18 @@ pub fn write(fd: std.os.fd_t, buf: []const u8) void {
         termiolog.err("only wrote {} byte(s) out of {} to pseudoterm (TODO: handle this)", .{len, buf.len});
         std.os.exit(0xff);
     }
+}
+
+pub fn read(fd: std.os.fd_t, buf: []u8) usize {
+    const read_len = std.os.read(fd, buf) catch |err| {
+        std.log.err("read from pseudoterm failed with {}", .{err});
+        std.os.exit(0xff);
+    };
+    if (read_len == 0) {
+        std.log.info("pseudoterm is closed", .{});
+        std.os.exit(0);
+    }
+    log(buf[0 .. read_len], .read);
+    termiolog.debug("read {} bytes from pseudoterm", .{read_len});
+    return read_len;
 }

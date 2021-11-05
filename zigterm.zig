@@ -91,7 +91,8 @@ fn run(shell_fd: std.os.fd_t, window: *Window) !void {
             },
         }
         if (readfds.isSet(@intCast(usize, shell_fd))) {
-            readPseudoterm(shell_fd, &buf);
+            const len = shell.read(shell_fd, buf.next());
+            _ = buf.scroll(len);
             // TODO: instead of doing a blocking render, I could
             //       schedule it to be done when the previous render
             //       is complete.
@@ -101,17 +102,4 @@ fn run(shell_fd: std.os.fd_t, window: *Window) !void {
             window.onRead(shell_fd, buf);
         }
     }
-}
-
-fn readPseudoterm(shell_fd: std.os.fd_t, buf: *CircularBuffer) void {
-    const read_len = std.os.read(shell_fd, buf.next()) catch |err| {
-        std.log.err("read from pseudoterm failed with {}", .{err});
-        std.os.exit(0xff);
-    };
-    if (read_len == 0) {
-        std.log.info("pseudoterm is closed", .{});
-        std.os.exit(0);
-    }
-    termiolog.debug("read {} bytes from pseudoterm", .{read_len});
-    _ = buf.scroll(read_len);
 }
