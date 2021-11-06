@@ -29,8 +29,7 @@ base_id: u32,
 
 grid: CharGrid,
 
-font_ascent: u8,
-font_height: u8,
+font_dims: FontDims,
 
 pixel_width: u16,
 pixel_height: u16,
@@ -100,13 +99,50 @@ pub fn init(grid: CharGrid) !Window {
     const format_list_limit = x.ConnectSetup.getFormatListLimit(format_list_offset, connect_setup_fixed.format_count);
     var screen = connect_setup.getFirstScreenPtr(format_list_limit);
 
-    const font_width = 8; // just hardcoded for now
-    const font_height = 12; // just hardcoded for now
-
-    const pixel_width = grid.width * font_width;
-    const pixel_height = grid.height * font_height;
-
     const base_id = connect_setup.fixed().resource_id_base;
+    createGc(sock, getBackgroundGcId(base_id), screen.root, bg_color, bg_color);
+    createGc(sock, getForegroundGcId(base_id), screen.root, fg_color, bg_color);
+
+    //
+    // Right now instead of getting the entire fontinfo structure, we just check
+    // the size of a single character.  If it's a fixed width font, this might
+    // be good enough.
+    //
+    {
+        const text_literal = [_]u16 { 'm' };
+        const text = x.Slice(u16, [*]const u16) { .ptr = &text_literal, .len = text_literal.len };
+        var msg: [x.query_text_extents.getLen(text.len)]u8 = undefined;
+        x.query_text_extents.serialize(&msg, getForegroundGcId(base_id), text);
+        send(sock, &msg);
+    }
+
+    const font_dims = blk: {
+        var buf align(4) = [_]u8 { undefined } ** @sizeOf(x.ServerMsg.QueryTextExtents);
+        const msg_len = try x.readOneMsg(reader, &buf);
+        switch (x.serverMsgTaggedUnion(&buf)) {
+            .reply => |msg_reply| {
+                if (msg_len != @sizeOf(x.ServerMsg.QueryTextExtents)) {
+                    std.log.err("unexpected reply {}", .{msg_reply});
+                    std.os.exit(0xff);
+                }
+                const msg = @ptrCast(*x.ServerMsg.QueryTextExtents, msg_reply);
+                break :blk FontDims{
+                    .width = @intCast(u8, msg.overall_width),
+                    .height = @intCast(u8, msg.font_ascent + msg.font_descent),
+                    .left = @intCast(i16, msg.overall_left),
+                    .ascent = msg.font_ascent,
+                };
+            },
+            else => |msg| {
+                std.log.err("expected a reply but got {}", .{msg});
+                std.os.exit(0xff);
+            },
+        }
+    };
+
+    const pixel_width = grid.width * font_dims.width;
+    const pixel_height = grid.height * font_dims.height;
+
     const window_id = getWindowId(base_id);
     {
         var msg_buf: [x.create_window.max_len]u8 = undefined;
@@ -154,9 +190,6 @@ pub fn init(grid: CharGrid) !Window {
         send(sock, &msg);
     }
 
-    createGc(sock, getBackgroundGcId(base_id), screen.root, bg_color, bg_color);
-    createGc(sock, getForegroundGcId(base_id), screen.root, fg_color, bg_color);
-
     const memfd = try Memfd.init("zigtermCircularBuffer");
 
     return Window{
@@ -169,8 +202,7 @@ pub fn init(grid: CharGrid) !Window {
         .recv_buf_start = 0,
         .base_id = base_id,
         .grid = grid,
-        .font_ascent = 4,
-        .font_height = font_height,
+        .font_dims = font_dims,
         .pixel_width = pixel_width,
         .pixel_height = pixel_height,
     };
@@ -207,7 +239,7 @@ pub fn render(self: Window, buf: CircularBuffer) void {
     {
         var row: u16 = 0;
         while (row < self.grid.height) : (row += 1) {
-            const y = self.font_ascent + (self.font_height * row);
+            const y = self.font_dims.ascent + (self.font_dims.height * @intCast(i16, row));
             self.drawString(0, @intCast(i16, y), self.grid.getRowPtr(row)[0 .. self.grid.width]);
         }
     }
@@ -289,6 +321,16 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
             },
             .expose => |msg| {
                 x11log.info("expose: {}", .{msg});
+                const new_cell_width = @divTrunc(msg.width, self.font_dims.width);
+                const new_cell_height = @divTrunc(msg.height, self.font_dims.height);
+                if (new_cell_width != self.grid.width or new_cell_height != self.grid.height) {
+                    std.log.info("TODO: resize {}x{} to {}x{}", .{
+                        self.grid.width,
+                        self.grid.height,
+                        new_cell_width,
+                        new_cell_height,
+                    });
+                }
                 self.render(term_buf);
             },
             else => {
@@ -332,3 +374,10 @@ pub fn toNewline(start: [*]u8, cursor_arg: [*]u8) ?[*]u8 {
             return cursor;
     }
 }
+
+const FontDims = struct {
+    width: u8,
+    height: u8,
+    left: i16, // pixels to the left of the text basepoint
+    ascent: i16, // pixels up from the text basepoint to the top of the text
+};
