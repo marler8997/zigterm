@@ -8,7 +8,7 @@ const renderlog = std.log.scoped(.render);
 const x = @import("x");
 const Memfd = x.Memfd;
 const CircularBuffer = x.CircularBuffer;
-const CharGrid = @import("CharGrid.zig");
+const LineLayout = @import("LineLayout.zig");
 
 const shell = @import("shell.zig");
 const Keyboard = @import("Keyboard.zig");
@@ -27,7 +27,7 @@ recv_buf_start: usize,
 
 base_id: u32,
 
-grid: CharGrid,
+layout: LineLayout,
 
 font_dims: FontDims,
 
@@ -37,7 +37,7 @@ pixel_height: u16,
 keyboard: Keyboard = .{},
 
 // Need to initialize with a pointer because we have a pinned reference to ourselves
-pub fn init(grid: CharGrid) !Window {
+pub fn init(layout: LineLayout) !Window {
     const display = x.getDisplay();
 
     const sock = x.connect(display) catch |err| {
@@ -140,8 +140,8 @@ pub fn init(grid: CharGrid) !Window {
         }
     };
 
-    const pixel_width = grid.width * font_dims.width;
-    const pixel_height = grid.height * font_dims.height;
+    const pixel_width = layout.width * font_dims.width;
+    const pixel_height = layout.height * font_dims.height;
 
     const window_id = getWindowId(base_id);
     {
@@ -201,7 +201,7 @@ pub fn init(grid: CharGrid) !Window {
         },
         .recv_buf_start = 0,
         .base_id = base_id,
-        .grid = grid,
+        .layout = layout,
         .font_dims = font_dims,
         .pixel_width = pixel_width,
         .pixel_height = pixel_height,
@@ -234,42 +234,39 @@ pub fn drawString(self: Window, x_coord: i16, y: i16, str: []const u8) void {
     send(self.sock, msg_buf[0 .. x.image_text8.getLen(str_len)]);
 }
 
-pub fn render(self: Window, buf: CircularBuffer) void {
-    textToGrid(self.grid, buf);
-    {
-        var row: u16 = 0;
-        while (row < self.grid.height) : (row += 1) {
-            const y = self.font_dims.ascent + (self.font_dims.height * @intCast(i16, row));
-            self.drawString(0, @intCast(i16, y), self.grid.getRowPtr(row)[0 .. self.grid.width]);
-        }
-    }
+pub fn clearRect(self: Window, area: x.Rectangle) void {
+    var msg: [x.clear_area.len]u8 = undefined;
+    x.clear_area.serialize(&msg, false, getWindowId(self.base_id), area);
+    send(self.sock, &msg);
 }
 
-fn textToGrid(grid: CharGrid, buf: CircularBuffer) void {
-    var start = buf.ptr;
-    var cursor = blk: {
-        if (buf.cursor < buf.size)
-            break :blk start + buf.cursor;
-        start += buf.cursor;
-        break :blk start + buf.size;
-    };
+pub fn render(self: Window, buf: CircularBuffer) void {
+    self.layout.layoutBuffer(buf);
+    {
+        var row: u16 = 0;
+        while (row < self.layout.height) : (row += 1) {
+            const y = self.font_dims.ascent + (self.font_dims.height * @intCast(i16, row));
 
-    var y_cell = grid.height;
-    while (true) {
-        if (y_cell == 0) {
-            // done drawing to the view
-            break;
-        }
-        y_cell -= 1;
-        if (toNewline(start, cursor)) |newline| {
-            const line_start = newline + 1;
-            const line_len = @ptrToInt(cursor) - @ptrToInt(line_start);
-            grid.copyRow(y_cell, line_start[0 .. line_len]);
-            cursor = newline - 1;
-        } else {
-            const line_len = @ptrToInt(cursor) - @ptrToInt(start);
-            grid.copyRow(y_cell, start[0 .. line_len]);
-            break;
+            const row_drawings = self.layout.rows[row];
+            var content_len: u16 = 0;
+            for (row_drawings.commandSlice()) |cmd| {
+                switch (cmd) {
+                    .text => |text| {
+                        const str = row_drawings.char_data[text.char_data_offset..text.char_data_limit];
+                        self.drawString(0, @intCast(i16, y), str);
+                        content_len += @intCast(u16, str.len);
+                    },
+                }
+            }
+            if (content_len < self.layout.width) {
+                const chars_left = self.layout.width - content_len;
+                self.clearRect(.{
+                    .x = @intCast(i16, (content_len * self.font_dims.width)) - self.font_dims.left,
+                    .y = y - self.font_dims.ascent,
+                    .width = chars_left * self.font_dims.width,
+                    .height = self.font_dims.height,
+                });
+            }
         }
     }
 }
@@ -323,10 +320,10 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
                 x11log.info("expose: {}", .{msg});
                 const new_cell_width = @divTrunc(msg.width, self.font_dims.width);
                 const new_cell_height = @divTrunc(msg.height, self.font_dims.height);
-                if (new_cell_width != self.grid.width or new_cell_height != self.grid.height) {
+                if (new_cell_width != self.layout.width or new_cell_height != self.layout.height) {
                     std.log.info("TODO: resize {}x{} to {}x{}", .{
-                        self.grid.width,
-                        self.grid.height,
+                        self.layout.width,
+                        self.layout.height,
                         new_cell_width,
                         new_cell_height,
                     });
@@ -362,17 +359,6 @@ fn readFull(reader: anytype, buf: []u8) void {
         x11log.err("failed to read {} bytes from X server: {s}", .{buf.len, @errorName(err)});
         std.os.exit(0xff);
     };
-}
-
-pub fn toNewline(start: [*]u8, cursor_arg: [*]u8) ?[*]u8 {
-    var cursor = cursor_arg;
-    while (true) {
-        if (@ptrToInt(cursor) <= @ptrToInt(start))
-            return null;
-        cursor -= 1;
-        if (cursor[0] == '\n')
-            return cursor;
-    }
 }
 
 const FontDims = struct {

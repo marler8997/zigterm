@@ -6,7 +6,7 @@ const Memfd = x11.Memfd;
 const CircularBuffer = x11.CircularBuffer;
 
 const shell = @import("shell.zig");
-const CharGrid = @import("CharGrid.zig");
+const LineLayout = @import("LineLayout.zig");
 const Window = @import("Window.zig");
 
 const termlog = std.log.scoped(.term);
@@ -25,13 +25,12 @@ pub fn main() anyerror!void {
     // cleanup any file descriptors (I think, but not sure)
     const shell_fd = try shell.spawnShell();
 
-    const grid = try CharGrid.init(std.heap.page_allocator, 80, 25);
-    var window = try Window.init(grid);
+    var window = try Window.init(try LineLayout.init(std.heap.page_allocator, 80, 25));
     // TODO: do I need to setlocale?
     //_ = c.XSetLocaleModifiers("");
 
     // TODO: is this necessary if we support "automatic margins"?
-    //shell.setSize(shell_fd, grid.width, grid.height);
+    //shell.setSize(shell_fd, window.layout.width, window.layout.height);
 
     try run(shell_fd, &window);
 }
