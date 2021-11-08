@@ -1,11 +1,14 @@
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const testing = std.testing;
 
 const x11 = @import("x");
 const Memfd = x11.Memfd;
 
 const CircularBuffer = @import("CircularBuffer.zig");
 const shell = @import("shell.zig");
+const ShellDataProcessor = @import("ShellDataProcessor.zig");
 const LineLayout = @import("LineLayout.zig");
 const Window = @import("Window.zig");
 
@@ -63,6 +66,8 @@ pub fn pselect6(
 }
 
 fn run(shell_fd: std.os.fd_t, window: *Window) !void {
+    var shell_processor = ShellDataProcessor.init();
+
     const maxfd = if (builtin.os.tag == .windows) void else (std.math.max(shell_fd, window.sock) + 1);
 
     const buf_memfd = try Memfd.init("zigtermCircularBuffer");
@@ -90,8 +95,11 @@ fn run(shell_fd: std.os.fd_t, window: *Window) !void {
             },
         }
         if (readfds.isSet(@intCast(usize, shell_fd))) {
-            const len = shell.read(shell_fd, buf.next());
-            _ = buf.scroll(len);
+            const read_buf = buf.next();
+            const raw_len = shell.read(shell_fd, read_buf);
+
+            shell_processor.processNewData(&buf, raw_len);
+
             // TODO: instead of doing a blocking render, I could
             //       schedule it to be done when the previous render
             //       is complete.

@@ -184,8 +184,10 @@ pub fn layoutBuffer(self: LineLayout, buf: CircularBuffer) void {
             self.layoutLine(&context, line_start[0 .. line_len]);
             cursor = newline - 1;
         } else {
-            const line_len = @ptrToInt(cursor) - @ptrToInt(start);
-            self.layoutLine(&context, start[0 .. line_len]);
+            if (@ptrToInt(cursor) > @ptrToInt(start)) {
+                const line_len = @ptrToInt(cursor) - @ptrToInt(start);
+                self.layoutLine(&context, start[0 .. line_len]);
+            }
             break;
         }
     }

@@ -39,9 +39,9 @@ pub fn parseEscape(buf: []const u8) Escape {
             std.log.warn("unhandled char after esc (0x1b) character {}", .{buf[1]});
             return .{ .len = 2, .kind = .unimplemented_sequence };
         },
-        '\r' => {
-            return .{ .len = 1, .kind = .ignore_for_now };
-        },
+        //'\r' => {
+        //    return .{ .len = 1, .kind = .ignore_for_now };
+        //},
         CSI => return parseCsi(buf, 0),
         else => {
             return .{ .len = 1, .kind = .none};
