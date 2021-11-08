@@ -3,8 +3,8 @@ const builtin = @import("builtin");
 
 const x11 = @import("x");
 const Memfd = x11.Memfd;
-const CircularBuffer = x11.CircularBuffer;
 
+const CircularBuffer = @import("CircularBuffer.zig");
 const shell = @import("shell.zig");
 const LineLayout = @import("LineLayout.zig");
 const Window = @import("Window.zig");

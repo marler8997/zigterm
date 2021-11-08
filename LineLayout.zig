@@ -1,5 +1,5 @@
 const std = @import("std");
-const CircularBuffer = @import("x").CircularBuffer;
+const CircularBuffer = @import("CircularBuffer.zig");
 const escapes = @import("escapes.zig");
 
 const LineLayout = @This();

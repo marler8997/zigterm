@@ -7,7 +7,8 @@ const renderlog = std.log.scoped(.render);
 
 const x = @import("x");
 const Memfd = x.Memfd;
-const CircularBuffer = x.CircularBuffer;
+const ContiguousReadBuffer = x.ContiguousReadBuffer;
+const CircularBuffer = @import("CircularBuffer.zig");
 const LineLayout = @import("LineLayout.zig");
 
 const shell = @import("shell.zig");
@@ -22,8 +23,7 @@ fn getBackgroundGcId(base_id: u32) u32 { return base_id + 2; }
 
 sock: std.os.socket_t,
 recv_buf_memfd: Memfd,
-recv_buf: CircularBuffer,
-recv_buf_start: usize,
+recv_buf: ContiguousReadBuffer,
 
 base_id: u32,
 
@@ -190,16 +190,19 @@ pub fn init(layout: LineLayout) !Window {
         send(sock, &msg);
     }
 
-    const memfd = try Memfd.init("zigtermCircularBuffer");
+    const memfd = try Memfd.init("zigtermX11ReadBuffer");
+    const recv_buf_capacity = std.mem.alignForward(4096, std.mem.page_size);
 
     return Window{
         .sock = sock,
         .recv_buf_memfd = memfd,
-        .recv_buf = CircularBuffer.initMinSize(memfd, 4096) catch |err| {
-            x11log.err("failed to create circular buffer: {s}", .{@errorName(err)});
-            std.os.exit(0xff);
+        .recv_buf = ContiguousReadBuffer{
+            .half_size = recv_buf_capacity,
+            .double_buffer_ptr = memfd.toDoubleBuffer(recv_buf_capacity) catch |err| {
+                x11log.err("failed to create circular buffer: {s}", .{@errorName(err)});
+                std.os.exit(0xff);
+            },
         },
-        .recv_buf_start = 0,
         .base_id = base_id,
         .layout = layout,
         .font_dims = font_dims,
@@ -240,8 +243,8 @@ pub fn clearRect(self: Window, area: x.Rectangle) void {
     send(self.sock, &msg);
 }
 
-pub fn render(self: Window, buf: CircularBuffer) void {
-    self.layout.layoutBuffer(buf);
+pub fn render(self: Window, term_buf: CircularBuffer) void {
+    self.layout.layoutBuffer(term_buf);
     {
         var row: u16 = 0;
         while (row < self.layout.height) : (row += 1) {
@@ -273,10 +276,9 @@ pub fn render(self: Window, buf: CircularBuffer) void {
 
 pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) void {
     {
-        const reserved = self.recv_buf.cursor - self.recv_buf_start;
-        const recv_buf = self.recv_buf.nextWithLen(self.recv_buf.size - reserved);
+        const recv_buf = self.recv_buf.nextReadBuffer();
         if (recv_buf.len == 0) {
-            x11log.err("x11 circular buffer size {} is too small!", .{self.recv_buf.size});
+            x11log.err("x11 circular buffer capacity {} is too small!", .{self.recv_buf.half_size});
             std.os.exit(0xff);
         }
         const len = std.os.recv(self.sock, recv_buf, 0) catch |err| {
@@ -287,17 +289,16 @@ pub fn onRead(self: *Window, term_fd_master: c_int, term_buf: CircularBuffer) vo
             x11log.info("X server connection closed", .{});
             std.os.exit(0);
         }
-        if (self.recv_buf.scroll(len)) {
-            self.recv_buf_start -= self.recv_buf.size;
-        }
+        self.recv_buf.reserve(len);
         x11log.debug("got {} bytes", .{len});
     }
     while (true) {
-        const recv_data = self.recv_buf.ptr[self.recv_buf_start .. self.recv_buf.cursor];
+        const recv_data = self.recv_buf.nextReservedBuffer();
         const msg_len = x.parseMsgLen(@alignCast(4, recv_data));
         if (msg_len == 0)
             break;
-        self.recv_buf_start += msg_len;
+        self.recv_buf.release(msg_len);
+        //self.recv_buf.resetIfEmpty(); // this might help cache locality and therefore performance
         // TODO: I need to verify the message internals don't go past the
         //       end of the buffer
         switch (x.serverMsgTaggedUnion(@alignCast(4, recv_data.ptr))) {

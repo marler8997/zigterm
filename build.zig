@@ -18,7 +18,7 @@ pub fn build(b: *std.build.Builder) void {
         const zigx_repo = GitRepoStep.create(b, .{
             .url = "https://github.com/marler8997/zigx",
             .branch = null,
-            .sha = "175949a89143e693ee017e19d21e382d1077dec8",
+            .sha = "db391e607d662165dd220c94fbb12692167f4b64",
         });
         exe.step.dependOn(&zigx_repo.step);
         const zigx_path = zigx_repo.getPath(&exe.step);
