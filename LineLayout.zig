@@ -14,7 +14,7 @@ commands: [*]DrawCommand,
 // an array of characters used by row commands, each row is allocatd 'width number of commands
 draw_char_data: [*]u8,
 
-pub fn init(allocator: *std.mem.Allocator, width: u16, height: u16) error{OutOfMemory}!LineLayout {
+pub fn init(allocator: std.mem.Allocator, width: u16, height: u16) error{OutOfMemory}!LineLayout {
     const cell_count = @intCast(u32, width) * @intCast(u32, height);
     const draw_char_data = try allocator.alloc(u8, cell_count);
     const commands = try allocator.alloc(DrawCommand, cell_count);

@@ -84,7 +84,7 @@ pub fn init(layout: LineLayout) !Window {
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     const connect_setup = x.ConnectSetup {
         .buf = allocator.allocWithOptions(u8, connect_setup_header.getReplyLen(), 4, null) catch @panic("Out of memory"),
